@@ -21,6 +21,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32wbxx_it.h"
+#include "tim.h"
+#include "string.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -52,13 +54,118 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+volatile uint16_t ssc_rcv_buf[8];
+uint8_t volatile tx_cnt;
+uint8_t volatile rx_cnt;
+volatile uint16_t flag;
+extern SPI_HandleTypeDef hspi1;
+extern volatile uint8_t idle_frame_tx;
+extern uint16_t ssc_txData_buf[510];
+extern uint16_t ssc_tx_msg_length;
+extern volatile uint16_t ssc_tx_msg_counter;
+volatile uint16_t ssc_txFrame_buf[8]   = {0};//, 0, 0x0000, 0x0000, 0xABCD, 0x5A5A, 0, 0};
+uint16_t idle_frame_tx_buf[8] = {0, 0, 0xABCD, 0x5A5A, 0xABCD, 0x5A5A, 0, 0};
 
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-
+extern SPI_HandleTypeDef hspi1;
 /* USER CODE BEGIN EV */
+void SPI1_IRQHandler(void)
+{
+	if(SPI_CHECK_FLAG( hspi1.Instance->SR, SPI_FLAG_RXNE) != RESET)
+	{
+		rx_cnt++;
+		if(rx_cnt == 8)
+		{
+		  rx_cnt = 0x00;
+			flag = 1;
+		}
+		ssc_rcv_buf[rx_cnt] = hspi1.Instance->DR;
+	}
+	if(SPI_CHECK_FLAG( hspi1.Instance->SR, SPI_FLAG_TXE) != RESET)
+	{
+	  if(idle_frame_tx == 1)  
+			hspi1.Instance->DR = idle_frame_tx_buf[tx_cnt++];
+		else
+			hspi1.Instance->DR = ssc_txFrame_buf[tx_cnt++];
+		if(tx_cnt == 8)
+		{
+		  tx_cnt = 0;
+			if(idle_frame_tx == 0)
+			{
+				if(ssc_tx_msg_counter > ssc_tx_msg_length)
+				{
+					idle_frame_tx = 1;
+					memcpy(ssc_txFrame_buf, idle_frame_tx_buf, 16);
+        }
+				else
+				{
+					memcpy(ssc_txFrame_buf + 2, ssc_txData_buf + ssc_tx_msg_counter, 4);
+				  ssc_tx_msg_counter += 2;
+				}
+			}
+		}
+	}
+  /* USER CODE BEGIN SPI1_IRQn 1 */
+  /* USER CODE END SPI1_IRQn 1 */
+}
 
+//void SPI1_IRQHandler(void)
+//{
+//	if(SPI_CHECK_FLAG( hspi1.Instance->SR, SPI_FLAG_RXNE) != RESET)
+//	{
+//		rx_cnt++;
+//		if(rx_cnt == 8)
+//		{
+//		  rx_cnt = 0x00;
+//			flag = 1;
+//		}
+//		ssc_rcv_buf[rx_cnt] = hspi1.Instance->DR;
+//	}
+//	if(SPI_CHECK_FLAG( hspi1.Instance->SR, SPI_FLAG_TXE) != RESET)
+//	{
+//	  //if(idle_frame_tx)  
+//		//	hspi1.Instance->DR = idle_frame_tx_buf[tx_cnt++];
+//		//else
+//		hspi1.Instance->DR = ssc_txFrame_buf[tx_cnt++];
+//		if(tx_cnt == 8)
+//		{
+//		  tx_cnt = 0;
+//			if(idle_frame_tx == 0)
+//			{
+//				memcpy((char*)(ssc_txFrame_buf + 2), (char*)(ssc_txData_buf + ssc_tx_msg_counter), 4);
+//				ssc_tx_msg_counter += 2;
+//      
+//				if(ssc_tx_msg_counter > ssc_tx_msg_length)
+//				{
+//					idle_frame_tx = 1;
+//        }
+//			}
+//			else
+//				memcpy((char*)ssc_txFrame_buf,(char*)idle_frame_tx_buf, 16);
+//		}
+//	}
+//  /* USER CODE BEGIN SPI1_IRQn 1 */
+//  /* USER CODE END SPI1_IRQn 1 */
+//}
+
+
+uint16_t temp;
+void EXTI1_IRQHandler(void)
+{
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+		if(temp == 40){
+			htim2.Instance->CR1 |= TIM_CR1_CEN;
+			htim1.Instance->CR1 |= TIM_CR1_CEN;
+			hspi1.Instance->CR1 |= SPI_CR1_SPE;
+			HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+			rx_cnt = 0;
+			tx_cnt = 1;
+			
+		}			
+		temp++;
+}
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -198,6 +305,10 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32wbxx.s).                    */
 /******************************************************************************/
+
+/**
+  * @brief This function handles SPI1 global interrupt.
+  */
 
 /* USER CODE BEGIN 1 */
 
